@@ -26,7 +26,7 @@
  */
 
 
-#include "lmic/lmic.h"
+#include "../basicmac/lmic/lmic.h"
 #include "modem.h"
 
 // ring buffer - append at end, free from beg

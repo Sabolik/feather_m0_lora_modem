@@ -26,7 +26,7 @@
  */
 
 
-#include "lmic/lmic.h"
+#include "../basicmac/lmic/lmic.h"
 
 // modem version
 #define VERSION_MAJOR 2

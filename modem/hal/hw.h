@@ -27,7 +27,7 @@
 
 
 
-#include "../lmic/oslmic.h"
+#include "../../basicmac/lmic/oslmic.h"
 
 #include "../../../feather_m0_lora_driver/board/hal/hal.h"
 

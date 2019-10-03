@@ -25,7 +25,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "lmic/lmic.h"
+#include "../basicmac/lmic/lmic.h"
 #include "modem.h"
 
 static const s1_t hexval[] = {

@@ -34,12 +34,12 @@ modem/buffer.c \
 modem/frame.c \
 modem/hal/hal.c \
 modem/hex.c \
-modem/lmic/aes.c \
-modem/lmic/lce.c \
-modem/lmic/lmic.c \
-modem/lmic/oslmic.c \
-modem/lmic/radio-sx127x.c \
-modem/lmic/radio.c \
+basicmac/lmic/aes.c \
+basicmac/lmic/lce.c \
+basicmac/lmic/lmic.c \
+basicmac/lmic/oslmic.c \
+basicmac/lmic/radio-sx127x.c \
+basicmac/lmic/radio.c \
 modem/main.c \
 modem/modem.c \
 modem/queue.c
