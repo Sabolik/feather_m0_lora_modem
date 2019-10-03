@@ -27,11 +27,27 @@
 
 #include "modem.h"
 #include "hal/hw.h"
-#include "sensor/sensor.h"
 
 //////////////////////////////////////////////////
 // CONFIGURATION (WILL BE PATCHED)
 //////////////////////////////////////////////////
+
+_Static_assert(sizeof(persist_t) <= EEPROM_SIZE, "persist_t struct too large");
+
+// Default region = first match if more regions enabled
+#ifdef CFG_eu868
+    #define REGION_DEFAULT  1   // REGION_EU868
+#elif CFG_as923
+    #define REGION_DEFAULT  2   // REGION_AS923
+#elif CFG_us915
+    #define REGION_DEFAULT  3   // REGION_US915
+#elif CFG_au915
+    #define REGION_DEFAULT  4   // REGION_AU915
+#elif CFG_cn470
+    #define REGION_DEFAULT  5   // REGION_CN470
+#else
+    #define REGION_DEFAULT  0   // REGCODE_UNDEF
+#endif
 
 static const union {
     joinparam_t param;
@@ -58,6 +74,7 @@ static const char* evnames[] = {
     [EV_BEACON_TRACKED] = "BEACON_TRACKED",
     [EV_JOINING]        = "JOINING",
     [EV_JOINED]         = "JOINED",
+    [EV_RFU1]           = "RFU1",
     [EV_JOIN_FAILED]    = "JOIN_FAILED",
     [EV_REJOIN_FAILED]  = "REJOIN_FAILED",
     [EV_TXCOMPLETE]     = "TXCOMPLETE",
@@ -68,6 +85,10 @@ static const char* evnames[] = {
     [EV_LINK_ALIVE]     = "LINK_ALIVE",
     [EV_SCAN_FOUND]     = "SCAN_FOUND",
     [EV_TXSTART]        = "TXSTART",
+    [EV_TXDONE]         = "TXDONE",
+    [EV_DATARATE]       = "DATARATE",
+    [EV_START_SCAN]     = "START_SCAN",
+    [EV_ADR_BACKOFF]    = "ADR_BACKOFF",
 };
 
 // return mask of all events matching given string prefix
@@ -94,19 +115,29 @@ static struct {
     osjob_t ledjob;
 } MODEM;
 
-// provide device EUI (LSBF)
+// provide region code
+u1_t os_getRegion (void) {
+    return REGION_DEFAULT;
+}
+
+// provide device ID (8 bytes, LSBF)
 void os_getDevEui (u1_t* buf) {
     memcpy(buf, PERSIST->joinpar.deveui, 8);
 }
 
-// provide device key
-void os_getDevKey (u1_t* buf) {
+// provide join ID (8 bytes, LSBF)
+void os_getJoinEui (u1_t* buf) {
+    memcpy(buf, PERSIST->joinpar.appeui, 8);
+}
+
+// provide device network key (16 bytes)
+void os_getNwkKey (u1_t* buf) {
     memcpy(buf, PERSIST->joinpar.devkey, 16);
 }
 
-// provide application EUI (LSBF)
-void os_getArtEui (u1_t* buf) {
-    memcpy(buf, PERSIST->joinpar.appeui, 8);
+// provide device application key (16 bytes)
+void os_getAppKey (u1_t* buf) {
+    memcpy(buf, PERSIST->sesspar.artkey, 16);
 }
 
 extern FRAME rxframe;
@@ -148,9 +179,7 @@ static void modem_starttx () {
 
 // LRSC MAC event handler
 // encode and queue event for output
-void onEvent (ev_t ev) {
-    // run some extra job first if any needed
-    onEventMainCallback(ev);
+void onLmicEvent (ev_t ev) {
     // turn LED off for a short moment
     leds_set(LED_POWER, 0);
     os_setTimedCallback(&MODEM.ledjob, os_getTime()+ms2osticks(200), ledfunc);
@@ -176,13 +205,15 @@ void onEvent (ev_t ev) {
 	sessparam_t newsession;
 	newsession.netid = LMIC.netid;
 	newsession.devaddr = LMIC.devaddr;
-	memcpy(newsession.nwkkey, LMIC.nwkKey, 16);
-	memcpy(newsession.artkey, LMIC.artKey, 16);
+	memcpy(newsession.nwkkey, LMIC.lceCtx.nwkSKey, 16);
+	memcpy(newsession.artkey, LMIC.lceCtx.appSKey, 16);
 	eeprom_copy(&PERSIST->sesspar, &newsession, sizeof(newsession));
 	eeprom_write(&PERSIST->seqnoDn, LMIC.seqnoDn);
 	eeprom_write(&PERSIST->seqnoUp, LMIC.seqnoUp);
 	eeprom_write(&PERSIST->flags, PERSIST->flags | FLAGS_SESSPAR);
       }
+    case EV_TXCOMPLETE:
+    leds_set(LED_TX_DONE, 1);
     }
 
     // report events (selected by eventmask)
@@ -248,12 +279,6 @@ static void modem_reset () {
 	LMIC.seqnoDn = PERSIST->seqnoDn;
 	LMIC.seqnoUp = PERSIST->seqnoUp + 2; // avoid reuse of seq numbers
 	leds_set(LED_SESSION, 1); // LED on
-    
-    if ( PERSIST->txparam.period ) {
-        sensor_txradio( PERSIST->txparam.period,
-                        PERSIST->txparam.pendTxPort,
-                        PERSIST->txparam.pendTxConf );
-    }
     }
 }
 
@@ -278,9 +303,6 @@ static void persist_init (u1_t factory) {
 	eeprom_write(&PERSIST->flags, flags);
 	eeprom_write(&PERSIST->eventmask, ~0); // report ALL events
 	eeprom_write(&PERSIST->cfghash, cfghash);
-    
-    txparam_t txparam = {.period = 0, .pendTxConf = LMIC.pendTxConf, .pendTxPort = LMIC.pendTxPort};
-    eeprom_copy(&PERSIST->txparam, &txparam, sizeof(txparam));
     }
 }
 
@@ -464,32 +486,7 @@ void modem_rxdone (osjob_t* j) {
 	    os_setTimedCallback(&MODEM.alarmjob, os_getTime()+sec2osticks(secs), onAlarm);
 	    ok = 1;
 	}
-    } else if(cmd == 'w' && len >= 2) { // ATW weather data
-    if(MODEM.cmdbuf[1] == '?' && len == 2) { // ATW? query (temperature,humidity,pressure)
-        sensor_txterminal();
-        ok = 1;
-    }
-    else if(len == 5 || len == 10) { // ATW= set confirm,port[,interval]  (0,FF[,FFFF])
-        if((MODEM.cmdbuf[1]=='0' || MODEM.cmdbuf[1]=='1') && MODEM.cmdbuf[2]==',' && // conf
-        gethex(&LMIC.pendTxPort, MODEM.cmdbuf+1+1+1, 2) == 1 && LMIC.pendTxPort) { // port
-            LMIC.pendTxConf = MODEM.cmdbuf[1] - '0';
-            txparam_t txparam = {
-                .period = 0,
-                .pendTxConf = LMIC.pendTxConf,
-                .pendTxPort = LMIC.pendTxPort};
-            if(len == 10 && MODEM.cmdbuf[5]==',') { // interval
-                hex2short(&txparam.period, MODEM.cmdbuf+6, 4);
-            }
-            if(LMIC.devaddr || (PERSIST->flags & FLAGS_JOINPAR)) { // implicitely join!
-                eeprom_copy(&PERSIST->txparam.pendTxPort, &txparam.pendTxPort, sizeof(txparam.pendTxPort));
-                eeprom_copy(&PERSIST->txparam.pendTxConf, &txparam.pendTxConf, sizeof(txparam.pendTxConf));
-                eeprom_copy(&PERSIST->txparam.period,     &txparam.period,     sizeof(txparam.period));
-                sensor_txradio(txparam.period, txparam.pendTxPort, txparam.pendTxConf);
-                ok = 1;
-            }
-        }
-    }
-    }
+}
 
     // send response
     if(ok) {

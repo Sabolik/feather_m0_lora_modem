@@ -4,7 +4,10 @@
 
 BAND_LIST := \
 eu868 \
-us915
+as923 \
+us915 \
+au915 \
+cn470
 
 # Default band
 BAND := eu868
@@ -14,7 +17,7 @@ ifeq ($(BAND),)
   $(error You must provide a BAND parameter, BAND=$(BAND_LIST))
 else
   ifeq ($(filter $(BAND),$(BAND_LIST)),)
-    $(error Invalid BAND specified)
+    $(error Invalid BAND specified, choose $(BAND_LIST))
   endif
 endif
 
@@ -32,16 +35,14 @@ modem/frame.c \
 modem/hal/hal.c \
 modem/hex.c \
 modem/lmic/aes.c \
+modem/lmic/lce.c \
 modem/lmic/lmic.c \
 modem/lmic/oslmic.c \
+modem/lmic/radio-sx127x.c \
 modem/lmic/radio.c \
 modem/main.c \
 modem/modem.c \
-modem/queue.c \
-modem/sensor/bme280.c \
-modem/sensor/sensor.c \
-modem/sensor/weather_click.c \
-xprintf/xprintf.c
+modem/queue.c
 
 OBJDIR := build
 C_SRCSDIR := .
@@ -53,10 +54,11 @@ LIBS := -L$(C_SRCSDIR)/Device_Startup \
         -L$(C_SRCSDIR)/driver/build
 
 INC := -I$(C_SRCSDIR)/driver/packs/CMSIS/Core/Include \
-       -I$(C_SRCSDIR)/driver/packs/samd21a/include
+       -I$(C_SRCSDIR)/driver/packs/samd21a/include \
+       -I$(C_SRCSDIR)/modem/hal
 
 CFLAGS := -x c -mthumb -D__SAMD21G18A__ -DNDEBUG $(INC) -Os -ffunction-sections -mlong-calls -Wall -mcpu=cortex-m0plus -std=gnu99
-CFLAGS += -DCFG_sx1276_radio
+CFLAGS += -DBRD_sx1276_radio
 CFLAGS += -DCFG_$(BAND)
 LDFLAGS := -mthumb -Wl, -Wl,--start-group -lm -lfeather_m0_lora_driver  -Wl,--end-group $(LIBS) -Wl,--gc-sections -mcpu=cortex-m0plus -Tsamd21g18a_flash.ld
 

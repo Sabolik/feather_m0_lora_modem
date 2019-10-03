@@ -52,11 +52,28 @@ static osjob_t rxtimeoutcheckjob;
 static osjob_t oneblinkjob;
 static osjob_t blinkjob;
 
-static void rxtimeoutcheckfunc (osjob_t* job) {
-    if( radio_is_rx_timeout() ) radio_irq_handler(1);
+// Workaround
+// Poll for RX timeout instead of DIO1 interrupt waiting - not available on Adafruit M0 Lora board
+static bit_t radio_is_rx_timeout () {
+    // these consts are defined in radio-sx127x.c
+    // so not reachable
+    const u1_t LORARegIrqFlags = 0x12;
+    const u1_t IRQ_LORA_RXTOUT_MASK = 0x80;
+    u1_t flags;
+    radio_readBuf(LORARegIrqFlags, &flags, 1);
     
-    // reschedule blink job
-    os_setTimedCallback(job, os_getTime()+ms2osticks(RX_TIMEOUT_PERIOD), rxtimeoutcheckfunc);
+    return flags & IRQ_LORA_RXTOUT_MASK;
+}
+
+static void rxtimeoutcheckfunc (osjob_t* job) {
+    if( radio_is_rx_timeout() ) {
+        radio_irq_handler(HAL_IRQMASK_DIO1, os_getTime());
+        // RX timeout job finished
+    }        
+    else {
+        // reschedule RX timeout job
+        os_setTimedCallback(job, os_getTime()+ms2osticks(RX_TIMEOUT_PERIOD), rxtimeoutcheckfunc);
+    }
 }
 
 static void oneblinkfunc (osjob_t* job) {
@@ -76,8 +93,6 @@ static void blinkfunc (osjob_t* job) {
 
 // initial job
 static void initfunc (osjob_t* job) {
-    // reset MAC state
-    LMIC_reset();
     // start modem
     modem_init();
 }
@@ -86,40 +101,18 @@ int main () {
     osjob_t myjob;
 
     // initialize runtime env
-    os_init();
+    os_init (NULL);
     // setup initial job
     os_setCallback(&myjob, initfunc);
-    //os_setCallback(&blinkjob, blinkfunc);
     // execute scheduled jobs and events
     os_runloop();
     // (not reached)
     return 0;
 }
 
-void onEventMainCallback (ev_t ev) {
-    if ( ev == EV_TXSTART )
-    {
-        // check for RX timeout manually by polling the radio instead of waiting for interrupt
-        // Required radio pin not available on MCU -> thus polling instead of needs of wire soldering.
-        os_setTimedCallback(&rxtimeoutcheckjob, os_getTime()+ms2osticks(RX_TIMEOUT_PERIOD), rxtimeoutcheckfunc);
-    }
-    else
-    {
-        if ( ev == EV_TXCOMPLETE )
-        {
-            // longer LED On duration indicates packet to be sent
-            hal_pin_led(1);
-            os_setTimedCallback(&oneblinkjob, os_getTime()+ms2osticks(BLINK_DURATION_TX_ms), oneblinkfunc);
-        }
-        // stop timeout polling, e.g. TX_COMPLETE event
-        os_clearCallback(&rxtimeoutcheckjob);
-    }
-}
-
 void leds_set (u1_t id, u1_t state) {
     // Only One Red Led available on Adafruit board
-    if ( id == LED_SESSION )
-    {
+    if ( id == LED_SESSION ) {
         // If joining, Led is blinking in 100ms period
         // Blinking from modem routine directly, but since 
         // BLINK_PERIOD_RUNNING_ms and BLINK_PERIOD_NO_SESSION_ms
@@ -128,4 +121,15 @@ void leds_set (u1_t id, u1_t state) {
         os_clearCallback(&blinkjob);
         os_setCallback(&blinkjob, blinkfunc);
     }
+    else if ( id == LED_TX_DONE && state ) {
+        // longer LED On duration indicates packet to be sent
+        hal_pin_led(1);
+        os_setTimedCallback(&oneblinkjob, os_getTime()+ms2osticks(BLINK_DURATION_TX_ms), oneblinkfunc);
+    }
+}
+
+void radio_check_rx_timeout (void) {
+    // check for RX timeout manually by polling the radio instead of waiting for interrupt
+    // Required radio pin not available on MCU -> thus polling instead of needs of wire soldering.
+    os_setTimedCallback(&rxtimeoutcheckjob, os_getTime()+ms2osticks(RX_TIMEOUT_PERIOD), rxtimeoutcheckfunc);
 }

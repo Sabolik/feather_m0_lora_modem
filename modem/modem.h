@@ -29,13 +29,14 @@
 #include "lmic/lmic.h"
 
 // modem version
-#define VERSION_MAJOR 1
-#define VERSION_MINOR 2
-#define VERSION_STR   "VERSION 1.2 ("__DATE__" "__TIME__")"
+#define VERSION_MAJOR 2
+#define VERSION_MINOR 0
+#define VERSION_STR   "VERSION 2.0 ("__DATE__" "__TIME__")"
 
 // LED ids
 #define LED_SESSION 1  // (IMST: yellow, LRSC: green)
 #define LED_POWER   2  // (IMST: green,  LRSC: red)
+#define LED_TX_DONE 3
 
 // patch patterns
 #define PATTERN_JOINCFG_STR "g0CMw49rRbav6HwQN0115g42OpmvTn7q" // (32 bytes)
@@ -60,13 +61,6 @@ typedef struct {
     u1_t artkey[16];
 } sessparam_t;
 
-// layout of periodic tx parameters
-typedef struct {
-    u2_t period;
-    u1_t pendTxPort;
-    u1_t pendTxConf;
-} txparam_t;
-
 // persistent state
 typedef struct {
     u4_t cfghash;
@@ -76,14 +70,12 @@ typedef struct {
     u4_t seqnoDn;
     u4_t seqnoUp;
     u4_t eventmask;
-    txparam_t txparam;
 } persist_t;
 
 #define FLAGS_JOINPAR 0x01
 #define FLAGS_SESSPAR 0x02
 
 #define PERSIST ((persist_t*)EEPROM_BASE)
-
 
 // frame rx/tx state
 #define FRAME_INIT   0x00
@@ -136,6 +128,7 @@ u1_t short2hex (u1_t* dst, u2_t v);
 u1_t byte2hex (u1_t* dst, u1_t v);
 u1_t hex2int (u4_t* n, const u1_t* src, u1_t len);
 u1_t hex2short (u2_t* n, const u1_t* src, u1_t len);
+u1_t hex2byte (u1_t* n, const u1_t* src, u1_t len);
 u1_t dec2int (u4_t* n, const u1_t* src, u1_t len);
 void reverse (u1_t* dst, const u1_t* src, u1_t len);
 u1_t tolower (u1_t c);
@@ -144,5 +137,4 @@ u1_t toupper (u1_t c);
 u1_t cpystr (u1_t* dst, const char* src);
 u1_t cmpstr (u1_t* buf, u1_t len, char* str);
 
-void onEventMainCallback (ev_t ev);
 void modem_transmitdata (u1_t* buf, u2_t len);

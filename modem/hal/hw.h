@@ -35,7 +35,17 @@
 // EEPROM
 //////////////////////////////////////////////////////////////////////
 
-#define EEPROM_BASE     HAL_EEPROM_BASE
+#define EEPROM_BASE             HAL_EEPROM_BASE
+#define EEPROM_SIZE             512//CONF_SECTOR_SIZE   // one sector used
+
+
+#define STACKDATA_BASE          (EEPROM_BASE + 0x0040)
+#define PERSODATA_BASE          (EEPROM_BASE + 0x0060)
+#define APPDATA_BASE            (EEPROM_BASE + 0x0100)
+
+#define STACKDATA_SZ            (PERSODATA_BASE - STACKDATA_BASE)
+#define PERSODATA_SZ            (APPDATA_BASE - PERSODATA_BASE)
+#define APPDATA_SZ              (EEPROM_END - APPDATA_BASE)
 
 // write 32-bit word to EEPROM
 void eeprom_write (u4_t* addr, u4_t val);
@@ -62,5 +72,11 @@ void sensor_power (u1_t state);
 //////////////////////////////////////////////////////////////////////
 
 void hal_pin_led (u1_t val);
+
+//////////////////////////////////////////////////////////////////////
+// Radio
+//////////////////////////////////////////////////////////////////////
+
+void radio_check_rx_timeout (void);
 
 

@@ -117,6 +117,18 @@ u1_t hex2short (u2_t* n, const u1_t* src, u1_t len) {
     return 1;
 }
 
+u1_t hex2byte (u1_t* n, const u1_t* src, u1_t len) {
+    *n = 0;
+    while(len--) {
+        s1_t v = hexval[*src++];
+        if(v < 0) { // bad hex digit
+            return 0;
+        }
+        *n = (*n << 4) | v; // shift nibble
+    }
+    return 1;
+}
+
 u1_t dec2int (u4_t* n, const u1_t* src, u1_t len) {
     *n = 0;
     while(len--) {
