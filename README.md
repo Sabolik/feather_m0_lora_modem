@@ -1,5 +1,5 @@
  # Description
-LoRaWan modem running on Adafruit [Feather M0 LoRa](https://www.adafruit.com/product/3178) board based on [Basic MAC](https://github.com/lorabasics/basicmac) library. Adopted from original IBM LoRaWAN modem running on IMST WiMOD module. Find the description of available AT commands in `doc/LMiC-Modem.pdf` document.
+LoRaWan modem running on Adafruit [Feather M0 LoRa](https://www.adafruit.com/product/3178) board based on [Basic MAC](https://github.com/lorabasics/basicmac) library. Adopted from original IBM LoRaWAN modem running on IMST WiMOD module. Find the description of available AT commands in `doc/LMiC-Modem.pdf` document. Supports Low power mode when running on battery.
 # Building
 Get repository:
 ```
