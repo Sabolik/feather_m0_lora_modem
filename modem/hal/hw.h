@@ -77,6 +77,6 @@ void hal_pin_led (u1_t val);
 // Radio
 //////////////////////////////////////////////////////////////////////
 
-void radio_check_rx_timeout (void);
+void radio_check_rx_timeout (u1_t cancelJob);
 
 

@@ -128,8 +128,12 @@ void leds_set (u1_t id, u1_t state) {
     }
 }
 
-void radio_check_rx_timeout (void) {
-    // check for RX timeout manually by polling the radio instead of waiting for interrupt
-    // Required radio pin not available on MCU -> thus polling instead of needs of wire soldering.
-    os_setTimedCallback(&rxtimeoutcheckjob, os_getTime()+ms2osticks(RX_TIMEOUT_PERIOD), rxtimeoutcheckfunc);
+void radio_check_rx_timeout (u1_t cancelJob) {
+    os_clearCallback(&rxtimeoutcheckjob);
+    if ( ! cancelJob )
+    {
+        // check for RX timeout manually by polling the radio instead of waiting for interrupt
+        // Required radio pin not available on MCU -> thus polling instead of needs of wire soldering.
+        os_setTimedCallback(&rxtimeoutcheckjob, os_getTime()+ms2osticks(RX_TIMEOUT_PERIOD), rxtimeoutcheckfunc);
+    }
 }

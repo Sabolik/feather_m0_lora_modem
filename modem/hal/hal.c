@@ -326,14 +326,19 @@ bool hal_pin_tcxo (u1_t val) {
 }
 
 void hal_irqmask_set (int mask) {
-    if (HAL_IRQMASK_DIO1) {
+    if (mask & HAL_IRQMASK_DIO1) {
         // IRQ pin not available on Feather M0 Lora board, poll radio register
-        radio_check_rx_timeout();
+        radio_check_rx_timeout(0);
     }
-    else if(HAL_IRQMASK_DIO0) {
+    if(mask & HAL_IRQMASK_DIO0) {
         // IRQ already enabled
     }
-    else {
-        // not Lora related
+    
+    // intended to disable DIO interrupts
+    // here keep interrupts ON, except DIO1 since polling
+    // radio directly due to lack of IO pin on board, so
+    // stop polling.
+    if (!mask) {
+        radio_check_rx_timeout(1);
     }
 }    
