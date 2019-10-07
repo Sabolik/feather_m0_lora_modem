@@ -29,7 +29,7 @@
 
 #include "../../basicmac/lmic/oslmic.h"
 
-#include "../../../feather_m0_lora_driver/board/hal/hal.h"
+#include "../../driver/board/hal/hal.h"
 
 //////////////////////////////////////////////////////////////////////
 // EEPROM
