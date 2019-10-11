@@ -34,21 +34,6 @@
 
 _Static_assert(sizeof(persist_t) <= EEPROM_SIZE, "persist_t struct too large");
 
-// Default region = first match if more regions enabled
-#ifdef CFG_eu868
-    #define REGION_DEFAULT  1   // REGION_EU868
-#elif CFG_as923
-    #define REGION_DEFAULT  2   // REGION_AS923
-#elif CFG_us915
-    #define REGION_DEFAULT  3   // REGION_US915
-#elif CFG_au915
-    #define REGION_DEFAULT  4   // REGION_AU915
-#elif CFG_cn470
-    #define REGION_DEFAULT  5   // REGION_CN470
-#else
-    #define REGION_DEFAULT  0   // REGCODE_UNDEF
-#endif
-
 static const union {
     joinparam_t param;
     u1_t pattern[sizeof(joinparam_t)];
@@ -117,7 +102,7 @@ static struct {
 
 // provide region code
 u1_t os_getRegion (void) {
-    return REGION_DEFAULT;
+    return PERSIST->regcode;
 }
 
 // provide device ID (8 bytes, LSBF)
@@ -303,6 +288,9 @@ static void persist_init (u1_t factory) {
 	eeprom_write(&PERSIST->flags, flags);
 	eeprom_write(&PERSIST->eventmask, ~0); // report ALL events
 	eeprom_write(&PERSIST->cfghash, cfghash);
+    
+    u1_t regcode_default = REGCODE_EU868; // Default region code
+    eeprom_copy(&PERSIST->regcode, &regcode_default, sizeof(regcode_default));
     }
 }
 
@@ -486,6 +474,23 @@ void modem_rxdone (osjob_t* j) {
 	    os_setTimedCallback(&MODEM.alarmjob, os_getTime()+sec2osticks(secs), onAlarm);
 	    ok = 1;
 	}
+    } else if(cmd == 'r' && len >= 2) { // ATR region code
+    if(MODEM.cmdbuf[1] == '?' && len == 2) { // ATR? query (region code)
+        rspbuf += cpystr(rspbuf, "OK,");
+        rspbuf += byte2hex(rspbuf, (u1_t)PERSIST->regcode);
+        ok = 1;
+    }
+    else if(len == 4 && MODEM.cmdbuf[1]=='=') { // ATR= set region code (01)
+        u1_t regcode_set;
+        if( hex2byte(&regcode_set, MODEM.cmdbuf+2, 2) &&
+            regcode_set != REGCODE_UNDEF && // valid regcode
+            regcode_set <= REGCODE_CN470 )  // would be better to add some size indicating last enum member
+        {
+            eeprom_copy(&PERSIST->regcode, &regcode_set, sizeof(PERSIST->regcode));
+            modem_reset();
+            ok = 1;
+        }
+    }
 }
 
     // send response

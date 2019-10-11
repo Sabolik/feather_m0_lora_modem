@@ -30,8 +30,8 @@
 
 // modem version
 #define VERSION_MAJOR 2
-#define VERSION_MINOR 0
-#define VERSION_STR   "VERSION 2.0 ("__DATE__" "__TIME__")"
+#define VERSION_MINOR 1
+#define VERSION_STR   "VERSION 2.1 ("__DATE__" "__TIME__")"
 
 // LED ids
 #define LED_SESSION 1  // (IMST: yellow, LRSC: green)
@@ -70,6 +70,7 @@ typedef struct {
     u4_t seqnoDn;
     u4_t seqnoUp;
     u4_t eventmask;
+    u1_t regcode;
 } persist_t;
 
 #define FLAGS_JOINPAR 0x01
