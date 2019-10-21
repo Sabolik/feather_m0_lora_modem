@@ -17,5 +17,5 @@ Resulting `feather_m0_lora_modem.bin`
 # Usage
 Adafruit feather M0 LoRa module is shipped with bossa bootloader. Get the [Bossac](https://github.com/shumatech/BOSSA/releases/tag/1.7.0) command line tool (verified with version 1.7.0). Enter the bootloader by double-clicking the reset button. The onboard red LED should pulse on and off. Load the firmware:
 ```
-$ bossac -p PORT -e -w -v -R feather_m0_lora_modem_xxxxx.bin
+$ bossac -p PORT -e -w -v -R feather_m0_lora_modem.bin
 ```
