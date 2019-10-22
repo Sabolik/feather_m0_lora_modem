@@ -183,12 +183,12 @@ static void usb_serial_init(void) {
 static void usb_serial_start(void) {
     u4_t waitPeriod = os_getTime() + ms2osticks(1000);
     
-    while (!hal_samd_usb_serial_initialized() && deltaticks(waitPeriod)) {
-		// wait cdc acm to be installed
+    while (!hal_samd_usb_serial_is_configured() && deltaticks(waitPeriod)) {
+		// wait for CONFIG state
         // up to 1s, otherwise deinitialize acm
 	};
     
-    if ( !deltaticks(waitPeriod) ) {
+    if ( !hal_samd_usb_serial_is_configured() ) {
         hal_samd_usb_serial_deinit();
     }
     else {
@@ -205,7 +205,12 @@ void usart_starttx () {
 }
 
 void usart_startrx () {
-    hal_samd_usb_serial_startrx();
+    uint8_t attempts = 5;
+    // try up to 5 times with 100ms delay
+    while ( ! hal_samd_usb_serial_startrx() && --attempts )
+    {
+        deltaticks(os_getTime() + ms2osticks(100));
+    }
 }
 
 // -----------------------------------------------------------------------------

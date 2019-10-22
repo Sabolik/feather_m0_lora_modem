@@ -32,6 +32,8 @@
 // CONFIGURATION (WILL BE PATCHED)
 //////////////////////////////////////////////////
 
+static void cmd_process (u1_t *cmdbuf, u1_t cmdlen);
+
 _Static_assert(sizeof(persist_t) <= EEPROM_SIZE, "persist_t struct too large");
 
 static const union {
@@ -92,12 +94,14 @@ static u4_t evmatch (u1_t* name, u1_t len) {
 
 // transient state
 static struct {
-    u1_t cmdbuf[300];
+    u1_t cmdbuf[CMD_BUF_LEN];
+    u1_t rspbuf[RSP_BUF_LEN];
     u2_t rsplen;
     u1_t txpending;
     osjob_t alarmjob;    
     osjob_t blinkjob;
     osjob_t ledjob;
+    osjob_t cmdrepeatjob;
 } MODEM;
 
 // provide region code
@@ -153,7 +157,7 @@ static void modem_starttx () {
 	    usart_starttx();
 	    MODEM.txpending = 1;
 	} else if(MODEM.rsplen) { // send response
-	    frame_init(&txframe, MODEM.cmdbuf, MODEM.rsplen);
+	    frame_init(&txframe, MODEM.rspbuf, MODEM.rsplen);
 	    MODEM.rsplen = 0;
 	    usart_starttx();
 	    MODEM.txpending = 1;
@@ -199,6 +203,8 @@ void onLmicEvent (ev_t ev) {
       }
     case EV_TXCOMPLETE:
     leds_set(LED_TX_DONE, 1);
+    break;
+    default: break;
     }
 
     // report events (selected by eventmask)
@@ -242,14 +248,23 @@ void onLmicEvent (ev_t ev) {
 }
 
 static void onAlarm (osjob_t* j) {
-    queue_add("EV_ALARM\r\n", 10);
+    queue_add((u1_t*)"EV_ALARM\r\n", 10);
     modem_starttx();
 }
 
+static void onCmdRepeat (osjob_t* j) {
+    cmd_process(PERSIST->cmdparam.cmdbuf, PERSIST->cmdparam.cmdlen);
+    
+    if (PERSIST->cmdparam.cmdperiod) {  // repeat
+        os_setTimedCallback(j, os_getTime()+sec2osticks(PERSIST->cmdparam.cmdperiod), onCmdRepeat);
+    }
+}
+
 static void modem_reset () {
-    os_clearCallback(&MODEM.alarmjob); // cancel alarm job
-    os_clearCallback(&MODEM.blinkjob); // cancel blink job
-    os_clearCallback(&MODEM.ledjob);   // cancel LED job
+    os_clearCallback(&MODEM.alarmjob);      // cancel alarm job
+    os_clearCallback(&MODEM.blinkjob);      // cancel blink job
+    os_clearCallback(&MODEM.ledjob);        // cancel LED job
+    os_clearCallback(&MODEM.cmdrepeatjob);  // cancel repeat job
 
 
     leds_set(LED_POWER, 1); // LED on
@@ -264,6 +279,10 @@ static void modem_reset () {
 	LMIC.seqnoDn = PERSIST->seqnoDn;
 	LMIC.seqnoUp = PERSIST->seqnoUp + 2; // avoid reuse of seq numbers
 	leds_set(LED_SESSION, 1); // LED on
+    }
+    
+    if (PERSIST->cmdparam.cmdperiod) {  // repeat stored command periodically
+        os_setTimedCallback(&MODEM.cmdrepeatjob, os_getTime()+sec2osticks(PERSIST->cmdparam.cmdperiod), onCmdRepeat);
     }
 }
 
@@ -291,7 +310,223 @@ static void persist_init (u1_t factory) {
     
     u1_t regcode_default = REGCODE_EU868; // Default region code
     eeprom_copy(&PERSIST->regcode, &regcode_default, sizeof(regcode_default));
+    
+    eeprom_write(&PERSIST->cmdparam.cmdperiod, 0);  // Defaults for AT CMD repeat
+    eeprom_write(&PERSIST->cmdparam.cmdlen, 0);
     }
+}   
+
+// process command and prepare response in MODEM.cmdbuf[]
+static void cmd_process (u1_t *cmdbuf, u1_t cmdlen) {    
+    u1_t ok = 0;
+    u1_t cmd = tolower(cmdbuf[0]);
+    u1_t* rspbuf = MODEM.rspbuf;
+    u1_t keeplastcommand = 1;
+    static u1_t cmdbuflast[CMD_BUF_LEN];
+    static u1_t cmdlenlast = 0;
+    if(cmdlen == 0) { // AT
+	ok = 1;
+    } else if(cmd == 'v' && cmdlen == 2 && cmdbuf[1] == '?') { // ATV? query version
+	rspbuf += cpystr(rspbuf, "OK,");
+	rspbuf += cpystr(rspbuf, VERSION_STR);
+	ok = 1;
+    } else if(cmd == 'z' && cmdlen == 1) { // ATZ reset
+	modem_reset();
+	ok = 1;
+    } else if(cmd == '&' && cmdlen == 2 && tolower(cmdbuf[1]) == 'f') { // AT&F factory reset
+	persist_init(1);
+	modem_reset();
+	ok = 1;
+    } else if(cmd == 'e' && cmdlen >= 2) { // event mask (query/set/add/remove)
+	u1_t mode = cmdbuf[1];
+	if(mode == '?' && cmdlen == 2) { // ATE? query
+	    rspbuf += cpystr(rspbuf, "OK,");
+	    if(PERSIST->eventmask == 0)       rspbuf += cpystr(rspbuf, "NONE");
+	    else if(PERSIST->eventmask == ~0) rspbuf += cpystr(rspbuf, "ALL");
+	    else {
+		for(u1_t e=0; e<32; e++) {
+		    if(e < sizeof(evnames)/sizeof(evnames[0]) && evnames[e] && (PERSIST->eventmask & (1 << e))) {
+			if(rspbuf - cmdbuf != 3) *rspbuf++ = '|';
+			rspbuf += cpystr(rspbuf, evnames[e]);
+		    }
+		}
+	    }
+	    ok = 1;
+	} else if(mode == '=' || mode == '+' || mode == '-') { // ATE= ATE+ ATE- set/add/remove
+	    u1_t i, j, clear = 0;
+	    u4_t mask = 0;
+	    for(i=2; i < cmdlen; i = j+1) {
+		for(j=i; j < cmdlen && cmdbuf[j]!='|'; j++);
+		mask |= evmatch(cmdbuf+i, j-i);
+	    }
+	    if(mask == 0 && mode == '=') {
+		if(cmpstr(cmdbuf+2, cmdlen-2, "ALL")) mask = ~0;
+		else if(cmpstr(cmdbuf+2, cmdlen-2, "NONE")) clear = 1;
+	    }
+	    if(mask || clear) {
+		if(mode == '+')      mask = PERSIST->eventmask | mask;
+		else if(mode == '-') mask = PERSIST->eventmask & ~mask;
+		eeprom_write(&PERSIST->eventmask, mask);
+		ok = 1;
+	    }
+	}
+    } else if(cmd == 's' && cmdlen >= 2) { // SESSION parameters
+	if(cmdbuf[1] == '?' && cmdlen == 2) { // ATS? query (netid,devaddr,seqnoup,seqnodn)
+	    if(PERSIST->flags & FLAGS_SESSPAR) {
+		rspbuf += cpystr(rspbuf, "OK,");
+		rspbuf += int2hex(rspbuf, PERSIST->sesspar.netid);
+		*rspbuf++ = ',';
+		rspbuf += int2hex(rspbuf, PERSIST->sesspar.devaddr);
+		*rspbuf++ = ',';
+		rspbuf += int2hex(rspbuf, PERSIST->seqnoUp);
+		*rspbuf++ = ',';
+		rspbuf += int2hex(rspbuf, PERSIST->seqnoDn);
+		ok = 1;
+	    }
+	} else if(cmdbuf[1] == '=' && cmdlen == 2+8+1+8+1+32+1+32) { // ATS= set (netid,devaddr,nwkkey,artkey)
+	    sessparam_t par;
+	    if( hex2int(&par.netid, cmdbuf+2, 8) &&
+		cmdbuf[2+8] == ',' &&
+		hex2int(&par.devaddr, cmdbuf+2+8+1, 8) &&
+		cmdbuf[2+8+1+8] == ',' &&
+		gethex(par.nwkkey, cmdbuf+2+8+1+8+1, 32) == 16 &&
+		cmdbuf[2+8+1+8+1+32] == ',' &&
+		gethex(par.artkey, cmdbuf+2+8+1+8+1+32+1, 32) == 16 ) {
+		// use new parameters
+		LMIC_reset();
+		LMIC_setSession(par.netid, par.devaddr, par.nwkkey, par.artkey);
+		// switch on LED
+		leds_set(LED_SESSION, 1);
+		// save parameters
+		eeprom_copy(&PERSIST->sesspar, &par, sizeof(par));
+		eeprom_write(&PERSIST->seqnoUp, LMIC.seqnoUp);
+		eeprom_write(&PERSIST->seqnoDn, LMIC.seqnoDn);
+		eeprom_write(&PERSIST->flags, PERSIST->flags | FLAGS_SESSPAR);
+		ok = 1;
+	    }
+	}
+    } else if(cmd == 'j' && cmdlen >= 2) { // JOIN parameters
+	if(cmdbuf[1] == '?' && cmdlen == 2) { // ATJ? query (deveui,appeui)
+	    if(PERSIST->flags & FLAGS_JOINPAR) {
+		u1_t tmp[8];
+		rspbuf += cpystr(rspbuf, "OK,");
+		reverse(tmp, PERSIST->joinpar.deveui, 8);
+		rspbuf += puthex(rspbuf, tmp, 8);
+		*rspbuf++ = ',';
+		reverse(tmp, PERSIST->joinpar.appeui, 8);
+		rspbuf += puthex(rspbuf, tmp, 8);
+		ok = 1;
+	    }
+	} else if(cmdbuf[1] == '=' && cmdlen == 2+16+1+16+1+32) { // ATJ= set (deveui,appeui,devkey)
+	    joinparam_t par;
+	    if( gethex(par.deveui, cmdbuf+2,           16) == 8 &&
+		cmdbuf[2+16] == ',' &&
+		gethex(par.appeui, cmdbuf+2+16+1,      16) == 8 &&
+		cmdbuf[2+16+1+16] == ',' &&
+		gethex(par.devkey, cmdbuf+2+16+1+16+1, 32) == 16 ) {
+		reverse(par.deveui, par.deveui, 8);
+		reverse(par.appeui, par.appeui, 8);
+		eeprom_copy(&PERSIST->joinpar, &par, sizeof(par));
+		eeprom_write(&PERSIST->flags, PERSIST->flags | FLAGS_JOINPAR);
+		ok = 1;
+	    }
+	}
+    } else if(cmd == 'j' && cmdlen == 1) { // ATJ join network
+	if(PERSIST->flags & FLAGS_JOINPAR) {
+	    LMIC_reset(); // force join
+	    LMIC_startJoining();
+	    ok = 1;
+	}
+    } else if(cmd == 't' && cmdlen >= 1) { // ATT transmit
+	if(cmdlen == 1) { // no conf, no port, no data
+	    if(LMIC.devaddr || (PERSIST->flags & FLAGS_JOINPAR)) { // implicitely join!
+		LMIC_sendAlive(); // send empty frame
+		ok = 1;
+	    }
+	} else if(cmdlen >= 5) { // confirm,port[,data]  (0,FF[,112233...])
+	    if((cmdbuf[1]=='0' || cmdbuf[1]=='1') && cmdbuf[2]==',' && // conf
+	       gethex(&LMIC.pendTxPort, cmdbuf+1+1+1, 2) == 1 && LMIC.pendTxPort) { // port
+		LMIC.pendTxConf = cmdbuf[1] - '0';
+		LMIC.pendTxLen = 0;
+		if(cmdlen > 5 && cmdbuf[5]==',') { // data
+		    LMIC.pendTxLen = gethex(LMIC.pendTxData, cmdbuf+6, cmdlen-6);
+		}
+		if(cmdlen == 5 || LMIC.pendTxLen) {
+		    if(LMIC.devaddr || (PERSIST->flags & FLAGS_JOINPAR)) { // implicitely join!
+			LMIC_setTxData();
+			ok = 1;
+		    }
+		}
+	    }
+	}
+    } else if(cmd == 'p' && cmdlen == 2) { // ATP set ping mode
+	if(LMIC.devaddr) { // requires a session
+	    u1_t n = cmdbuf[1];
+	    if(n>='0' && n<='7') {
+		LMIC_setPingable(n-'0');
+		ok = 1;
+	    }
+	}
+    } else if(cmd == 'a' && cmdlen >= 2) { // ATA set alarm timer
+	u4_t secs;
+	if(hex2int(&secs, cmdbuf+1, cmdlen-1)) {
+	    os_setTimedCallback(&MODEM.alarmjob, os_getTime()+sec2osticks(secs), onAlarm);
+	    ok = 1;
+	}
+    } else if(cmd == 'r' && cmdlen >= 2) { // ATR region code
+    if(cmdbuf[1] == '?' && cmdlen == 2) { // ATR? query (region code)
+        rspbuf += cpystr(rspbuf, "OK,");
+        rspbuf += byte2hex(rspbuf, (u1_t)PERSIST->regcode);
+        ok = 1;
+    }
+    else if(cmdlen == 4 && cmdbuf[1]=='=') { // ATR= set region code (01)
+        u1_t regcode_set;
+        if( hex2byte(&regcode_set, cmdbuf+2, 2) &&
+            regcode_set != REGCODE_UNDEF && // valid regcode
+            regcode_set <= REGCODE_CN470 )  // would be better to add some size indicating last enum member
+        {
+            eeprom_copy(&PERSIST->regcode, &regcode_set, sizeof(PERSIST->regcode));
+            modem_reset();
+            ok = 1;
+        }
+    }
+    } else if(cmd == 'l' && cmdlen >= 2) { // ATL last command repeat
+    u4_t secs;
+    keeplastcommand = 0;    // do not keep ATL itself
+    if(cmdlen == 2 && cmdbuf[1]=='0') { // stop repeat
+        eeprom_write(&PERSIST->cmdparam.cmdperiod, 0);
+        os_clearCallback(&MODEM.cmdrepeatjob);  // clear pending job
+        ok = 1;
+    }
+    else if(cmdlen >= 3 &&  // repeat,period
+            cmdbuf[2]==',' &&
+            hex2int(&secs, cmdbuf+3, cmdlen-3) &&
+            (cmdbuf[1]=='0' || (cmdbuf[1]=='1' && secs)) &&
+            cmdlenlast) {
+        eeprom_write(&PERSIST->cmdparam.cmdperiod, cmdbuf[1]=='1' ? secs : 0);
+        eeprom_copy(&PERSIST->cmdparam.cmdbuf, cmdbuflast, cmdlenlast);  // keep last AT command
+        eeprom_write(&PERSIST->cmdparam.cmdlen, cmdlenlast);
+        os_setTimedCallback(&MODEM.cmdrepeatjob, os_getTime()+sec2osticks(secs), onCmdRepeat);
+        ok = 1; 
+    }
+}
+
+    // send response
+    if(ok) {
+    if(keeplastcommand){
+        cmdlenlast = cmdlen;
+        memcpy(cmdbuflast, cmdbuf, cmdlenlast);
+    }
+	if(rspbuf == MODEM.rspbuf) {
+	    rspbuf += cpystr(rspbuf, "OK");
+	}
+    } else {
+	rspbuf += cpystr(rspbuf, "ERROR");
+    }
+    *rspbuf++ = '\r';
+    *rspbuf++ = '\n';
+    MODEM.rsplen = rspbuf - MODEM.rspbuf;
+    modem_starttx();
 }
 
 // called by initial job
@@ -302,8 +537,6 @@ void modem_init () {
     persist_init(0);
 
     leds_init();
-
-    //modem_reset();
 
     buffer_init();
     queue_init();
@@ -319,200 +552,16 @@ void modem_init () {
 }
 
 // called by frame job
-// process command and prepare response in MODEM.cmdbuf[]
 void modem_rxdone (osjob_t* j) {
-    u1_t ok = 0;
-    u1_t cmd = tolower(MODEM.cmdbuf[0]);
-    u1_t len = rxframe.len;
-    u1_t* rspbuf = MODEM.cmdbuf;
-    if(len == 0) { // AT
-	ok = 1;
-    } else if(cmd == 'v' && len == 2 && MODEM.cmdbuf[1] == '?') { // ATV? query version
-	rspbuf += cpystr(rspbuf, "OK,");
-	rspbuf += cpystr(rspbuf, VERSION_STR);
-	ok = 1;
-    } else if(cmd == 'z' && len == 1) { // ATZ reset
-	modem_reset();
-	ok = 1;
-    } else if(cmd == '&' && len == 2 && tolower(MODEM.cmdbuf[1]) == 'f') { // AT&F factory reset
-	persist_init(1);
-	modem_reset();
-	ok = 1;
-    } else if(cmd == 'e' && len >= 2) { // event mask (query/set/add/remove)
-	u1_t mode = MODEM.cmdbuf[1];
-	if(mode == '?' && len == 2) { // ATE? query
-	    rspbuf += cpystr(rspbuf, "OK,");
-	    if(PERSIST->eventmask == 0)       rspbuf += cpystr(rspbuf, "NONE");
-	    else if(PERSIST->eventmask == ~0) rspbuf += cpystr(rspbuf, "ALL");
-	    else {
-		for(u1_t e=0; e<32; e++) {
-		    if(e < sizeof(evnames)/sizeof(evnames[0]) && evnames[e] && (PERSIST->eventmask & (1 << e))) {
-			if(rspbuf - MODEM.cmdbuf != 3) *rspbuf++ = '|';
-			rspbuf += cpystr(rspbuf, evnames[e]);
-		    }
-		}
-	    }
-	    ok = 1;
-	} else if(mode == '=' || mode == '+' || mode == '-') { // ATE= ATE+ ATE- set/add/remove
-	    u1_t i, j, clear = 0;
-	    u4_t mask = 0;
-	    for(i=2; i < len; i = j+1) {
-		for(j=i; j < len && MODEM.cmdbuf[j]!='|'; j++);
-		mask |= evmatch(MODEM.cmdbuf+i, j-i);
-	    }
-	    if(mask == 0 && mode == '=') {
-		if(cmpstr(MODEM.cmdbuf+2, len-2, "ALL")) mask = ~0;
-		else if(cmpstr(MODEM.cmdbuf+2, len-2, "NONE")) clear = 1;
-	    }
-	    if(mask || clear) {
-		if(mode == '+')      mask = PERSIST->eventmask | mask;
-		else if(mode == '-') mask = PERSIST->eventmask & ~mask;
-		eeprom_write(&PERSIST->eventmask, mask);
-		ok = 1;
-	    }
-	}
-    } else if(cmd == 's' && len >= 2) { // SESSION parameters
-	if(MODEM.cmdbuf[1] == '?' && len == 2) { // ATS? query (netid,devaddr,seqnoup,seqnodn)
-	    if(PERSIST->flags & FLAGS_SESSPAR) {
-		rspbuf += cpystr(rspbuf, "OK,");
-		rspbuf += int2hex(rspbuf, PERSIST->sesspar.netid);
-		*rspbuf++ = ',';
-		rspbuf += int2hex(rspbuf, PERSIST->sesspar.devaddr);
-		*rspbuf++ = ',';
-		rspbuf += int2hex(rspbuf, PERSIST->seqnoUp);
-		*rspbuf++ = ',';
-		rspbuf += int2hex(rspbuf, PERSIST->seqnoDn);
-		ok = 1;
-	    }
-	} else if(MODEM.cmdbuf[1] == '=' && len == 2+8+1+8+1+32+1+32) { // ATS= set (netid,devaddr,nwkkey,artkey)
-	    sessparam_t par;
-	    if( hex2int(&par.netid, MODEM.cmdbuf+2, 8) &&
-		MODEM.cmdbuf[2+8] == ',' &&
-		hex2int(&par.devaddr, MODEM.cmdbuf+2+8+1, 8) &&
-		MODEM.cmdbuf[2+8+1+8] == ',' &&
-		gethex(par.nwkkey, MODEM.cmdbuf+2+8+1+8+1, 32) == 16 &&
-		MODEM.cmdbuf[2+8+1+8+1+32] == ',' &&
-		gethex(par.artkey, MODEM.cmdbuf+2+8+1+8+1+32+1, 32) == 16 ) {
-		// use new parameters
-		LMIC_reset();
-		LMIC_setSession(par.netid, par.devaddr, par.nwkkey, par.artkey);
-		// switch on LED
-		leds_set(LED_SESSION, 1);
-		// save parameters
-		eeprom_copy(&PERSIST->sesspar, &par, sizeof(par));
-		eeprom_write(&PERSIST->seqnoUp, LMIC.seqnoUp);
-		eeprom_write(&PERSIST->seqnoDn, LMIC.seqnoDn);
-		eeprom_write(&PERSIST->flags, PERSIST->flags | FLAGS_SESSPAR);
-		ok = 1;
-	    }
-	}
-    } else if(cmd == 'j' && len >= 2) { // JOIN parameters
-	if(MODEM.cmdbuf[1] == '?' && len == 2) { // ATJ? query (deveui,appeui)
-	    if(PERSIST->flags & FLAGS_JOINPAR) {
-		u1_t tmp[8];
-		rspbuf += cpystr(rspbuf, "OK,");
-		reverse(tmp, PERSIST->joinpar.deveui, 8);
-		rspbuf += puthex(rspbuf, tmp, 8);
-		*rspbuf++ = ',';
-		reverse(tmp, PERSIST->joinpar.appeui, 8);
-		rspbuf += puthex(rspbuf, tmp, 8);
-		ok = 1;
-	    }
-	} else if(MODEM.cmdbuf[1] == '=' && len == 2+16+1+16+1+32) { // ATJ= set (deveui,appeui,devkey)
-	    joinparam_t par;
-	    if( gethex(par.deveui, MODEM.cmdbuf+2,           16) == 8 &&
-		MODEM.cmdbuf[2+16] == ',' &&
-		gethex(par.appeui, MODEM.cmdbuf+2+16+1,      16) == 8 &&
-		MODEM.cmdbuf[2+16+1+16] == ',' &&
-		gethex(par.devkey, MODEM.cmdbuf+2+16+1+16+1, 32) == 16 ) {
-		reverse(par.deveui, par.deveui, 8);
-		reverse(par.appeui, par.appeui, 8);
-		eeprom_copy(&PERSIST->joinpar, &par, sizeof(par));
-		eeprom_write(&PERSIST->flags, PERSIST->flags | FLAGS_JOINPAR);
-		ok = 1;
-	    }
-	}
-    } else if(cmd == 'j' && len == 1) { // ATJ join network
-	if(PERSIST->flags & FLAGS_JOINPAR) {
-	    LMIC_reset(); // force join
-	    LMIC_startJoining();
-	    ok = 1;
-	}
-    } else if(cmd == 't' && len >= 1) { // ATT transmit
-	if(len == 1) { // no conf, no port, no data
-	    if(LMIC.devaddr || (PERSIST->flags & FLAGS_JOINPAR)) { // implicitely join!
-		LMIC_sendAlive(); // send empty frame
-		ok = 1;
-	    }
-	} else if(len >= 5) { // confirm,port[,data]  (0,FF[,112233...])
-	    if((MODEM.cmdbuf[1]=='0' || MODEM.cmdbuf[1]=='1') && MODEM.cmdbuf[2]==',' && // conf
-	       gethex(&LMIC.pendTxPort, MODEM.cmdbuf+1+1+1, 2) == 1 && LMIC.pendTxPort) { // port
-		LMIC.pendTxConf = MODEM.cmdbuf[1] - '0';
-		LMIC.pendTxLen = 0;
-		if(len > 5 && MODEM.cmdbuf[5]==',') { // data
-		    LMIC.pendTxLen = gethex(LMIC.pendTxData, MODEM.cmdbuf+6, len-6);
-		}
-		if(len == 5 || LMIC.pendTxLen) {
-		    if(LMIC.devaddr || (PERSIST->flags & FLAGS_JOINPAR)) { // implicitely join!
-			LMIC_setTxData();
-			ok = 1;
-		    }
-		}
-	    }
-	}
-    } else if(cmd == 'p' && len == 2) { // ATP set ping mode
-	if(LMIC.devaddr) { // requires a session
-	    u1_t n = MODEM.cmdbuf[1];
-	    if(n>='0' && n<='7') {
-		LMIC_setPingable(n-'0');
-		ok = 1;
-	    }
-	}
-    } else if(cmd == 'a' && len >= 2) { // ATA set alarm timer
-	u4_t secs;
-	if(hex2int(&secs, MODEM.cmdbuf+1, len-1)) {
-	    os_setTimedCallback(&MODEM.alarmjob, os_getTime()+sec2osticks(secs), onAlarm);
-	    ok = 1;
-	}
-    } else if(cmd == 'r' && len >= 2) { // ATR region code
-    if(MODEM.cmdbuf[1] == '?' && len == 2) { // ATR? query (region code)
-        rspbuf += cpystr(rspbuf, "OK,");
-        rspbuf += byte2hex(rspbuf, (u1_t)PERSIST->regcode);
-        ok = 1;
-    }
-    else if(len == 4 && MODEM.cmdbuf[1]=='=') { // ATR= set region code (01)
-        u1_t regcode_set;
-        if( hex2byte(&regcode_set, MODEM.cmdbuf+2, 2) &&
-            regcode_set != REGCODE_UNDEF && // valid regcode
-            regcode_set <= REGCODE_CN470 )  // would be better to add some size indicating last enum member
-        {
-            eeprom_copy(&PERSIST->regcode, &regcode_set, sizeof(PERSIST->regcode));
-            modem_reset();
-            ok = 1;
-        }
-    }
-}
-
-    // send response
-    if(ok) {
-	if(rspbuf == MODEM.cmdbuf) {
-	    rspbuf += cpystr(rspbuf, "OK");
-	}
-    } else {
-	rspbuf += cpystr(rspbuf, "ERROR");
-    }
-    *rspbuf++ = '\r';
-    *rspbuf++ = '\n';
-    MODEM.rsplen = rspbuf - MODEM.cmdbuf;
-    modem_starttx();
-}
+    cmd_process(MODEM.cmdbuf, rxframe.len);
+}    
 
 // called by frame job
 void modem_txdone (osjob_t* j) {
     MODEM.txpending = 0;
     // free events (static buffers ignored)
     buffer_free(txframe.buf, txframe.len);
-    if(txframe.buf == MODEM.cmdbuf) { // response transmitted
+    if(txframe.buf == MODEM.rspbuf) { // response transmitted
 	// restart reception for new command
 	frame_init(&rxframe, MODEM.cmdbuf, sizeof(MODEM.cmdbuf));
 	usart_startrx();

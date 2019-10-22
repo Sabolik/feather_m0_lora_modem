@@ -30,8 +30,8 @@
 
 // modem version
 #define VERSION_MAJOR 2
-#define VERSION_MINOR 1
-#define VERSION_STR   "VERSION 2.1 ("__DATE__" "__TIME__")"
+#define VERSION_MINOR 2
+#define VERSION_STR   "VERSION 2.2 ("__DATE__" "__TIME__")"
 
 // LED ids
 #define LED_SESSION 1  // (IMST: yellow, LRSC: green)
@@ -45,6 +45,9 @@
 #define PATTERN_SESSCFG_STR "Bmf3quaCJwVKURWWREeGKtm0pqLD0Yhr5cpPkP6s" // (40 bytes)
 #define PATTERN_SESSCFG_HEX "426d6633717561434a77564b55525757524565474b746d3070714c4430596872356370506b503673"
 #define PATTERN_SESSCFG_CRC 0xC9D5
+
+#define CMD_BUF_LEN 200
+#define RSP_BUF_LEN 100
 
 // layout of join paramters
 typedef struct {
@@ -61,6 +64,13 @@ typedef struct {
     u1_t artkey[16];
 } sessparam_t;
 
+// layout of periodic AT command execution
+typedef struct {
+    u4_t cmdperiod;
+    u4_t cmdlen;
+    u1_t cmdbuf[CMD_BUF_LEN];
+} cmdparam_t;
+
 // persistent state
 typedef struct {
     u4_t cfghash;
@@ -71,6 +81,7 @@ typedef struct {
     u4_t seqnoUp;
     u4_t eventmask;
     u1_t regcode;
+    cmdparam_t cmdparam;
 } persist_t;
 
 #define FLAGS_JOINPAR 0x01
