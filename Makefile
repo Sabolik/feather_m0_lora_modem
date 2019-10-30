@@ -40,6 +40,7 @@ INC := -I$(C_SRCSDIR)/driver/packs/CMSIS/Core/Include \
 
 CFLAGS := -x c -mthumb -D__SAMD21G18A__ -DNDEBUG $(INC) -Os -ffunction-sections -mlong-calls -Wall -mcpu=cortex-m0plus -std=gnu99
 CFLAGS += -DBRD_sx1276_radio
+CFLAGS += -DCFG_autojoin
 CFLAGS += -DCFG_eu868
 CFLAGS += -DCFG_as923
 CFLAGS += -DCFG_us915
