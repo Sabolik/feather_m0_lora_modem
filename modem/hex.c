@@ -68,6 +68,26 @@ u1_t puthex (u1_t* dst, const u1_t* src, u1_t len) {
     return 2*l;
 }
 
+u1_t putshort (u1_t* dst, const u2_t* src, u1_t len, u1_t decimalplaces) {
+    u1_t l = len;
+    u2_t num = * src;
+    dst += l;
+    while(len--)
+    {
+        *(--dst) = "0123456789"[num % 10];
+        num /= 10;
+        if ( decimalplaces && len ) {
+            if ( decimalplaces == 1 ) {
+                *(--dst) = '.';
+                -- len;
+            }
+            decimalplaces --;
+        }
+    }
+    
+    return l;
+}
+
 u1_t int2hex (u1_t* dst, u4_t v) {
     u1_t tmp[4];
     tmp[0] = v >> 24;

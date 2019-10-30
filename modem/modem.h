@@ -30,8 +30,8 @@
 
 // modem version
 #define VERSION_MAJOR 2
-#define VERSION_MINOR 2
-#define VERSION_STR   "VERSION 2.2 ("__DATE__" "__TIME__")"
+#define VERSION_MINOR 3
+#define VERSION_STR   "VERSION 2.3 ("__DATE__" "__TIME__")"
 
 // LED ids
 #define LED_SESSION 1  // (IMST: yellow, LRSC: green)
@@ -135,6 +135,7 @@ void leds_set (u1_t id, u1_t state);
 
 u1_t gethex (u1_t* dst, const u1_t* src, u2_t len);
 u1_t puthex (u1_t* dst, const u1_t* src, u1_t len);
+u1_t putshort (u1_t* dst, const u2_t* src, u1_t len, u1_t decimalplaces);
 u1_t int2hex (u1_t* dst, u4_t v);
 u1_t short2hex (u1_t* dst, u2_t v);
 u1_t byte2hex (u1_t* dst, u1_t v);

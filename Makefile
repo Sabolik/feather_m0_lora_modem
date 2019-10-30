@@ -23,7 +23,10 @@ basicmac/lmic/radio-sx127x.c \
 basicmac/lmic/radio.c \
 modem/main.c \
 modem/modem.c \
-modem/queue.c
+modem/queue.c \
+modem/sensor/bme280.c \
+modem/sensor/sensor.c \
+modem/sensor/weather_click.c
 
 OBJDIR := build
 C_SRCSDIR := .

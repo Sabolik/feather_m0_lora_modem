@@ -27,6 +27,7 @@
 
 #include "modem.h"
 #include "hal/hw.h"
+#include "sensor/sensor.h"
 
 //////////////////////////////////////////////////
 // CONFIGURATION (WILL BE PATCHED)
@@ -439,7 +440,7 @@ static void cmd_process (u1_t *cmdbuf, u1_t cmdlen) {
 	}
     } else if(cmd == 't' && cmdlen >= 1) { // ATT transmit
 	if(cmdlen == 1) { // no conf, no port, no data
-	    if(LMIC.devaddr || (PERSIST->flags & FLAGS_JOINPAR)) { // implicitely join!
+	    if(LMIC.devaddr) { // valid session required!
 		LMIC_sendAlive(); // send empty frame
 		ok = 1;
 	    }
@@ -509,6 +510,22 @@ static void cmd_process (u1_t *cmdbuf, u1_t cmdlen) {
         os_setTimedCallback(&MODEM.cmdrepeatjob, os_getTime()+sec2osticks(secs), onCmdRepeat);
         ok = 1; 
     }
+    } else if(cmd == 'w' && cmdlen >= 2) { // ATW weather data
+    if(cmdbuf[1] == '?' && cmdlen == 2 && sensor_txterminal()) { // ATW? query (temperature,humidity,pressure)
+        ok = 1;
+    }
+    else if(cmdlen == 8 && // ATW set confirm,port  (0,FF,FF)
+            (LMIC.devaddr || (PERSIST->flags & FLAGS_JOINPAR))) { // implicitely join!
+        u1_t pendTxPort;
+        u1_t dataChannel;
+        if((cmdbuf[1]=='0' || cmdbuf[1]=='1') && cmdbuf[2]==',' && // conf
+        gethex(&pendTxPort, cmdbuf+3, 2) == 1 && pendTxPort && // port
+        gethex(&dataChannel, cmdbuf+6, 2) == 1 && dataChannel) { // lpp data channel
+            if (sensor_txradio(pendTxPort, cmdbuf[1] - '0', dataChannel)) {
+                ok = 1;
+            }
+        }
+    }
 }
 
     // send response
@@ -546,9 +563,11 @@ void modem_init () {
 
     // start reception of command
     frame_init(&rxframe, MODEM.cmdbuf, sizeof(MODEM.cmdbuf));
-    usart_startrx();
     
     modem_reset();
+    
+    // query version, start Rx afterward 
+    cmd_process ((u1_t*)"V?", 2);
 }
 
 // called by frame job
