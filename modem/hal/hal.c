@@ -183,12 +183,11 @@ static void usb_serial_init(void) {
 static void usb_serial_start(void) {
     u4_t waitPeriod = os_getTime() + ms2osticks(1000);
     
-    while (!hal_samd_usb_serial_is_configured() && deltaticks(waitPeriod)) {
-		// wait for CONFIG state
+    while (!hal_samd_usb_serial_initialized() && deltaticks(waitPeriod)) {
         // up to 1s, otherwise deinitialize acm
 	};
     
-    if ( !hal_samd_usb_serial_is_configured() ) {
+    if ( !hal_samd_usb_serial_initialized() ) {
         hal_samd_usb_serial_deinit();
     }
     else {
@@ -197,20 +196,14 @@ static void usb_serial_start(void) {
 }
 
 void usart_starttx () {
-    if ( ! hal_samd_usb_serial_starttx(txframe.buf, txframe.max) )
-    {
+    if ( ! hal_samd_usb_serial_starttx(txframe.buf, txframe.max) ) {
         // clear outcomming buffers etc.
         usart_tx_done();
     } 
 }
 
 void usart_startrx () {
-    uint8_t attempts = 5;
-    // try up to 5 times with 100ms delay
-    while ( ! hal_samd_usb_serial_startrx() && --attempts )
-    {
-        deltaticks(os_getTime() + ms2osticks(100));
-    }
+    (void) hal_samd_usb_serial_startrx();
 }
 
 // -----------------------------------------------------------------------------
