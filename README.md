@@ -1,5 +1,5 @@
 # Description
-LoRaWan modem running on Adafruit [Feather M0 LoRa](https://www.adafruit.com/product/3178) board based on [Basic MAC](https://github.com/lorabasics/basicmac) library. Adopted from original IBM LoRaWAN modem running on IMST WiMOD module. Find the description of available AT commands in `doc/LMiC-Modem.pdf` document. Various RF bands supported, default (factory reset) band is eu868. Supports Low power mode when running on battery.
+LoRaWan modem running on Adafruit [Feather M0 LoRa](https://www.adafruit.com/product/3178) board based on [Basic MAC](https://github.com/lorabasics/basicmac) library. Adopted from original IBM LoRaWAN modem running on IMST WiMOD module. Find the description of available AT commands in `doc/LMiC-Modem.pdf` document. Various RF bands supported, default (factory reset) band is eu868. Supports Low power mode when running on battery (standby current <100uA in total from battery, <5uA MCU+Radio).
 # Building
 Get repository:
 ```
@@ -41,7 +41,7 @@ repeat measurement and data sending every 30 minutes:
 ```
 ATL1,708
 ```
-unplug USB, connect Battery instead so now the device is running in Low power mode measuring and sending weather data every 30 minutes.
+unplug USB and reset device using on-board button. The device is now running in Low power mode (if battery connected) measuring and sending weather data every 30 minutes.
 ## Example 3
 create [TTN Device](https://www.thethingsnetwork.org/) using OTAA activation method
 ```
