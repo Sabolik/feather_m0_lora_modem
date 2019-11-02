@@ -158,10 +158,14 @@ void hal_i2c_readBlock(u1_t reg_addr, u1_t *read_buff, u1_t length) {
 // -----------------------------------------------------------------------------
 // USB
 extern FRAME txframe;
+static uint8_t txbusy = 0;
 
-static void usart_tx_done(void) {
-    txframe.len = txframe.max;  // update txframe.len to free the buffer
-    frame_tx(0);
+void usart_tx_done(void) {
+    if(txbusy) {
+        txframe.len = txframe.max;  // update txframe.len to free the buffer
+        frame_tx(0);
+    }
+    txbusy = 0;
 }
 
 static void usart_rx_done(uint8_t* data, uint16_t len) {
@@ -200,6 +204,7 @@ void usart_starttx () {
         // clear outcomming buffers etc.
         usart_tx_done();
     } 
+    txbusy = 1;
 }
 
 void usart_startrx () {

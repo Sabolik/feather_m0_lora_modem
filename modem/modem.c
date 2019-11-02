@@ -103,6 +103,7 @@ static struct {
     osjob_t blinkjob;
     osjob_t ledjob;
     osjob_t cmdrepeatjob;
+    osjob_t txtimeout;
 } MODEM;
 
 // provide region code
@@ -149,10 +150,17 @@ static void ledfunc (osjob_t* j) {
     leds_set(LED_POWER, 1);
 }
 
+static void txtimeout (osjob_t* j) {
+    usart_tx_done();
+}
+
+
 // start transmission of prepared response or queued event message
 static void modem_starttx () {
     hal_disableIRQs();
     if( !MODEM.txpending ) {
+    // might be cleared in e.g. regular tx_done event when data shifted out
+    os_clearCallback(&MODEM.txtimeout);
 	// check if we have something to send
 	if(queue_shift(&txframe)) { // send next queued event
 	    usart_starttx();
@@ -163,6 +171,10 @@ static void modem_starttx () {
 	    usart_starttx();
 	    MODEM.txpending = 1;
 	}
+    // run modem_txdone job in any case when txpending, e.g. data not shifted out
+    if(MODEM.txpending) {
+        os_setTimedCallback(&MODEM.txtimeout, os_getTime()+ms2osticks(txframe.len + 500), txtimeout);
+    }
     }
     hal_enableIRQs();
 }
@@ -266,6 +278,7 @@ static void modem_reset () {
     os_clearCallback(&MODEM.blinkjob);      // cancel blink job
     os_clearCallback(&MODEM.ledjob);        // cancel LED job
     os_clearCallback(&MODEM.cmdrepeatjob);  // cancel repeat job
+    os_clearCallback(&MODEM.txtimeout);     // cancel tx timeout job
 
 
     leds_set(LED_POWER, 1); // LED on

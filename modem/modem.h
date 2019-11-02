@@ -129,6 +129,7 @@ u1_t frame_rx (u1_t c);
 void usart_init (void);
 void usart_starttx (void);
 void usart_startrx (void);
+void usart_tx_done(void);
 
 void leds_init (void);
 void leds_set (u1_t id, u1_t state);
