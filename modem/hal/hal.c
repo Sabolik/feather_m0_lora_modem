@@ -196,15 +196,18 @@ static void usb_serial_start(void) {
     }
     else {
         hal_samd_usb_serial_start(usart_rx_done, usart_tx_done);
+        // start with sending of empty string, for some reason
+        // if not started with tx, rx is not sometimes enabled
+        hal_samd_usb_serial_starttx((uint8_t*)"", 0);
     } 
 }
 
 void usart_starttx () {
+    txbusy = 1;
     if ( ! hal_samd_usb_serial_starttx(txframe.buf, txframe.max) ) {
         // clear outcomming buffers etc.
         usart_tx_done();
-    } 
-    txbusy = 1;
+    }
 }
 
 void usart_startrx () {

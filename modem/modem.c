@@ -576,11 +576,10 @@ void modem_init () {
 
     // start reception of command
     frame_init(&rxframe, MODEM.cmdbuf, sizeof(MODEM.cmdbuf));
-    
+
     modem_reset();
-    
-    // query version, start Rx afterward 
-    cmd_process ((u1_t*)"V?", 2);
+
+    usart_startrx();
 }
 
 // called by frame job
