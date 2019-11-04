@@ -1,5 +1,7 @@
 # Description
 LoRaWan modem running on Adafruit [Feather M0 LoRa](https://www.adafruit.com/product/3178) board based on [Basic MAC](https://github.com/lorabasics/basicmac) library. Adopted from original IBM LoRaWAN modem running on IMST WiMOD module. Find the description of available AT commands in `doc/LMiC-Modem.pdf` document. Various RF bands supported, default (factory reset) band is eu868. Supports Low power mode when running on battery (standby current <100uA in total from battery, <5uA MCU+Radio).
+# Setup
+An [ARM compiler](https://developer.arm.com/open-source/gnu-toolchain/gnu-rm/downloads) is required for the build.
 # Building
 Get repository:
 ```
