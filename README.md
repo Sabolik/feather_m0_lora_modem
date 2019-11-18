@@ -44,7 +44,7 @@ repeat measurement and data sending every 30 minutes:
 ```
 ATL1,708
 ```
-unplug USB and reset device using on-board button. The device is now running in Low power mode (if battery connected) measuring and sending weather data (temperature, humidity and pressure) every 30 minutes to your [Dashboard](https://developers.mydevices.com/cayenne/features).
+unplug USB and reset device using on-board button. The device is now running in Low power mode (if battery connected) measuring and sending weather data (temperature, humidity and pressure) every 30 minutes visible on your [Dashboard](https://developers.mydevices.com/cayenne/features).
 ## Example 3
 create [TTN Device](https://www.thethingsnetwork.org/) using OTAA activation method
 ```
