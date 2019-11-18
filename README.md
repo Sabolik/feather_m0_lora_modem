@@ -32,10 +32,11 @@ reply expected as described in `doc/LMiC-Modem.pdf`, chapter 4.14.2
 ## Example 2
 create [TTN Device](https://www.thethingsnetwork.org/) using ABP activation method to
 establish connection as described in `doc/LMiC-Modem.pdf`, chapter 4.5.1
+Follow the [instructions](https://www.thethingsnetwork.org/docs/applications/cayenne), register and create your [myDevices Dashboard](https://developers.mydevices.com/cayenne/features).
 ```
 ATS=Networ ID (e.g. 00000013),Device Address (MSB),Network Session Key (MSB),App Session Key (MSB)
 ```
-send weather data from connected BME280 sensor on port e.g. 1, channel e.g. 3
+send weather data from connected BME280 sensor on port e.g. 1, channel starting on e.g. 3
 ```
 ATW0,01,03
 ```
@@ -43,7 +44,7 @@ repeat measurement and data sending every 30 minutes:
 ```
 ATL1,708
 ```
-unplug USB and reset device using on-board button. The device is now running in Low power mode (if battery connected) measuring and sending weather data every 30 minutes.
+unplug USB and reset device using on-board button. The device is now running in Low power mode (if battery connected) measuring and sending weather data (temperature, humidity and pressure) every 30 minutes to your [Dashboard](https://developers.mydevices.com/cayenne/features).
 ## Example 3
 create [TTN Device](https://www.thethingsnetwork.org/) using OTAA activation method
 ```
