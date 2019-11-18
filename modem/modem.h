@@ -30,8 +30,8 @@
 
 // modem version
 #define VERSION_MAJOR 2
-#define VERSION_MINOR 3
-#define VERSION_STR   "VERSION 2.3 ("__DATE__" "__TIME__")"
+#define VERSION_MINOR 4
+#define VERSION_STR   "VERSION 2.4 ("__DATE__" "__TIME__")"
 
 // LED ids
 #define LED_SESSION 1  // (IMST: yellow, LRSC: green)

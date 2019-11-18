@@ -77,12 +77,20 @@ static void sensor_readmeasurements (osjob_t* job) {
             u1_t payload[11];
 
             // Cayenne LPP format
-            payload[0] = lpp_data_channel;                  // Data Ch.
+            /*
+            Cayenne LPP 2.0
+            
+            3.1. Data Channel
+            The Data Channel uniquely identifies each sensor or actuator within a device.
+            Acceptable range is from 0 to 64. The device developer is responsible to assign a unique channel
+            for each of the devices sensor and actuator and conform to it across the device life cycle.
+            */
+            payload[0] = lpp_data_channel++;                // Data Ch.
             payload[1] = LPP_TEMPERATURE_SENSOR;            // Temperature Sensor
             payload[2] = temperature_res_deg_0point1 >> 8;  // MSB Data
             payload[3] = temperature_res_deg_0point1;       // LSB Data
             
-            payload[4] = lpp_data_channel;                  // Data Ch.
+            payload[4] = lpp_data_channel++;                // Data Ch.
             payload[5] = LPP_HUMIDITY_SENSOR;               // Humidity Sensor
             payload[6] = humidity_res_rel_0point5;          // Data
             
