@@ -50,7 +50,7 @@ CFLAGS += -DCFG_us915
 CFLAGS += -DCFG_au915
 CFLAGS += -DCFG_cn470
 
-LDFLAGS := -mthumb -Wl, -Wl,--start-group -lm -lfeather_m0_lora_driver  -Wl,--end-group $(LIBS) -Wl,--gc-sections -mcpu=cortex-m0plus -Tsamd21g18a_flash.ld
+LDFLAGS := -mthumb -Wl,--start-group -lm -lfeather_m0_lora_driver -Wl,--end-group -Wl,--gc-sections -mcpu=cortex-m0plus -Tsamd21g18a_flash.ld
 
 _OBJS := $(patsubst %.c,%.o,$(C_SRCS))
 OBJS := $(addprefix $(OBJDIR)/, $(_OBJS))
@@ -69,7 +69,7 @@ $(OBJS): $(OBJDIR)/%.o: $(C_SRCSDIR)/%.c
 $(OUTPUT_FILE_PATH): $(OBJS)
 	@echo Building target: $@
 	@echo Invoking: ARM/GNU Linker : 6.3.1
-	$(CC) -o$(OUTPUT_FILE_PATH) $(OBJS) $(LDFLAGS)
+	$(CC) -o$(OUTPUT_FILE_PATH) $(OBJS) $(LIBS) $(LDFLAGS)
 	@echo Finished building target: $@
 	$(OBJCOPY) -O binary $(OUTPUT_FILE_PATH)
 
