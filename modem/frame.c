@@ -73,7 +73,8 @@ u1_t frame_rx (u1_t c) {
 	}
 	break;
     case FRAME_A_T:
-	if(c == '\r') {
+	if(c == '\r' ||
+	   c == '\n') {
 	    rxframe.state = FRAME_A_OK;
 	    os_setCallback(&rxjob, modem_rxdone); // run job
 	    return 0; // stop reception
