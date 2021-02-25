@@ -578,8 +578,6 @@ void modem_init () {
     frame_init(&rxframe, MODEM.cmdbuf, sizeof(MODEM.cmdbuf));
 
     modem_reset();
-
-    usart_startrx();
 }
 
 // called by frame job
