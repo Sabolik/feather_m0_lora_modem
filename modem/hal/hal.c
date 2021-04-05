@@ -155,6 +155,10 @@ void hal_i2c_readBlock(u1_t reg_addr, u1_t *read_buff, u1_t length) {
     hal_samd_i2c_readBlock(reg_addr, read_buff, length);
 }
 
+void hal_i2c_writeBlock(u1_t reg_addr, const u1_t *write_buff, u1_t length) {
+    hal_samd_i2c_writeBlock(reg_addr, write_buff, length);
+}
+
 // -----------------------------------------------------------------------------
 // USB
 extern FRAME txframe;

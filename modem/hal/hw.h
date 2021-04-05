@@ -60,6 +60,7 @@ void eeprom_copy (void* dst, const void* src, u2_t len);
 void hal_i2c_ioInit(s2_t addr);
 void hal_i2c_writeByte(u1_t reg_addr, u1_t data);
 void hal_i2c_readBlock(u1_t reg_addr, u1_t *read_buff, u1_t length);
+void hal_i2c_writeBlock(u1_t reg_addr, const u1_t *write_buff, u1_t length);
 
 //////////////////////////////////////////////////////////////////////
 // Sensor

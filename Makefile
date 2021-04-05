@@ -24,9 +24,11 @@ basicmac/lmic/radio.c \
 modem/main.c \
 modem/modem.c \
 modem/queue.c \
-modem/sensor/bme280.c \
 modem/sensor/sensor.c \
-modem/sensor/weather_click.c
+modem/sensor/sensor_bme280.c \
+modem/sensor/sensor_bmp280.c \
+modem/sensor/BME280_driver/bme280.c \
+modem/sensor/BMP280_driver/bmp280.c
 
 OBJDIR := build
 C_SRCSDIR := .
@@ -49,6 +51,9 @@ CFLAGS += -DCFG_as923
 CFLAGS += -DCFG_us915
 CFLAGS += -DCFG_au915
 CFLAGS += -DCFG_cn470
+CFLAGS += -DBME280_32BIT_ENABLE
+CFLAGS += -DBMP280_DISABLE_DOUBLE_COMPENSATION
+CFLAGS += -DBMP280_DISABLE_64BIT_COMPENSATION
 
 LDFLAGS := -mthumb -Wl,--start-group -lm -lfeather_m0_lora_driver -Wl,--end-group -Wl,--gc-sections -mcpu=cortex-m0plus -Tsamd21g18a_flash.ld
 

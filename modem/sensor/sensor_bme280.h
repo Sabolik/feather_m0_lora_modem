@@ -20,19 +20,8 @@
  * SOFTWARE
  */
 
-#define SENSOR_I2C_ADDR_PRIM                 UINT8_C(0x76)
 
-struct sensor_data
-{
-    /*< Compensated pressure */
-    uint32_t pressure;
-
-    /*< Compensated temperature */
-    int32_t temperature;
-
-    /*< Compensated humidity */
-    uint32_t humidity;
-};
-
-u1_t sensor_txradio(u1_t port, u1_t confirm, u1_t channel);
-u1_t sensor_txterminal(void);
+bit_t sensor_init_bme280(void);
+bit_t sensor_force_trigger_bme280(u4_t *meas_delay);
+bit_t sensor_get_data_bme280(struct sensor_data *comp_sensor_data);
+bit_t sensor_check_bme280(void);

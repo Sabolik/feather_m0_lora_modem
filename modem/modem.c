@@ -296,7 +296,8 @@ static void modem_reset () {
     }
     
     if (PERSIST->cmdparam.cmdperiod) {  // repeat stored command periodically
-        os_setTimedCallback(&MODEM.cmdrepeatjob, os_getTime()+sec2osticks(PERSIST->cmdparam.cmdperiod), onCmdRepeat);
+        //os_setTimedCallback(&MODEM.cmdrepeatjob, os_getTime()+sec2osticks(PERSIST->cmdparam.cmdperiod), onCmdRepeat);
+		os_setCallback(&MODEM.cmdrepeatjob, onCmdRepeat);
     }
 }
 

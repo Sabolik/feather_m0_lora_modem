@@ -23,7 +23,8 @@
 #include "../modem.h"
 #include "../hal/hw.h"
 #include "sensor.h"
-#include "weather_click.h"
+#include "sensor_bme280.h"
+#include "sensor_bmp280.h"
 
 #define LPP_TEMPERATURE_SENSOR      103
 #define LPP_HUMIDITY_SENSOR         104
@@ -32,26 +33,107 @@
 #define SENT_TERMINAL               (1<<0)
 #define SENT_RADIO                  (1<<1)
 
+typedef bit_t (*sensor_init_fptr_t)(void);
+typedef bit_t (*sensor_force_trigger_fptr_t)(u4_t *meas_delay);
+typedef bit_t (*sensor_get_data_fptr_t)(struct sensor_data *comp_sensor_data);
+typedef bit_t (*sensor_check_fptr_t)(void);
+
+typedef struct
+{
+    sensor_init_fptr_t sensor_init;
+    sensor_force_trigger_fptr_t sensor_force_trigger;
+    sensor_get_data_fptr_t sensor_get_data;
+    sensor_check_fptr_t sensor_check;
+    uint8_t sensor_value_types;
+} sensor_fce_t;
+
+typedef enum 
+{
+  SENSOR_BME_280 = 0, 
+  SENSOR_BMP_280,
+} sensor_type_t;
+
+typedef enum 
+{
+  SENSOR_TEMPERATURE = (1<<0), 
+  SENSOR_HUMUDITY = (1<<1),
+  SENSOR_PRESSURE = (1<<2),
+} sensor_value_t;
+
 static void sensor_readmeasurements (osjob_t* job);
 static void sensor_startmeasurements (osjob_t* job);
+static void sensor_send_message(char *txt, u1_t len);
+
+int8_t user_i2c_read(uint8_t reg_addr, uint8_t *data, uint32_t len, void *intf_ptr);
+int8_t user_i2c_write(uint8_t reg_addr, const uint8_t *data, uint32_t len, void *intf_ptr);
+void user_delay_us(uint32_t period, void *intf_ptr);
 
 static u1_t sensor_data_processing = ~(SENT_TERMINAL | SENT_RADIO);  // invalid values by default
 static u1_t radio_tx_port = 1;
 static u1_t radio_tx_confirm = 0;
 static u1_t lpp_data_channel = 0;  
+static sensor_fce_t sensor_fce[] = {
+    {
+        sensor_init_bme280,
+        sensor_force_trigger_bme280,
+        sensor_get_data_bme280,
+        sensor_check_bme280,
+        (SENSOR_TEMPERATURE | SENSOR_HUMUDITY | SENSOR_PRESSURE),
+    },
+    {
+        sensor_init_bmp280,
+        sensor_force_trigger_bmp280,
+        sensor_get_data_bmp280,
+        sensor_check_bmp280,
+        (SENSOR_PRESSURE),
+    },
+};
+static u1_t sensor_type;
+static bit_t get_data_again = false;
+
+/*!
+ * @brief This function reading the sensor's registers through I2C bus.
+ */
+int8_t user_i2c_read(uint8_t reg_addr, uint8_t *data, uint32_t len, void *intf_ptr)
+{
+    hal_i2c_readBlock(reg_addr, data, len);
+    return 0;
+}
+
+/*!
+ * @brief This function for writing the sensor's registers through I2C bus.
+ */
+int8_t user_i2c_write(uint8_t reg_addr, const uint8_t *data, uint32_t len, void *intf_ptr)
+{
+    hal_i2c_writeBlock(reg_addr, data, len);
+    return 0;
+}
+
+/*!
+ * @brief This function provides the delay for required time (Microseconds) as per the input provided in some of the
+ * APIs
+ */
+void user_delay_us(uint32_t period, void *intf_ptr)
+{
+    hal_waitUntil(us2osticks(period));
+}
 
 static void sensor_readmeasurements (osjob_t* job) {
+    /* Structure to get the pressure, temperature and humidity values */
+    struct sensor_data comp_data;
+
     // Measurement finshed, get data and sent it
-    if ( Weather_readSensorsFinished() ) {
-        s2_t temperature_res_deg_0point1 = (s2_t)(Weather_getTemperatureDegC() * 10);
-        u2_t humidity_res_rel_0point1 = (u2_t)(Weather_getHumidityRH() * 10);
-        u1_t humidity_res_rel_0point5 = humidity_res_rel_0point1 / 5;
-        u2_t barometer_res_hPa_0point1 = (u2_t)(Weather_getPressureKPa() * 100);
+    if (sensor_fce[sensor_type].sensor_get_data(&comp_data)) {
+        s2_t temperature_res_deg_0point1 = (s2_t)((comp_data.temperature + 5) / 10);
+        u2_t humidity_res_rel_0point1 = (u2_t)(comp_data.humidity * 5);
+        u1_t humidity_res_rel_0point5 = (u1_t) comp_data.humidity;
+        u2_t barometer_res_hPa_0point1 = (u2_t)((comp_data.pressure + 5) / 10);
         
         if (sensor_data_processing & SENT_TERMINAL) {
             
             u1_t const len = (6*3)+2+2; // 3x6 digits + 2 commas + 2 escape
             u1_t *buf = buffer_alloc(len);
+            memset(buf, 0x00, len);
             u1_t *pbuf = buf;
             u1_t signchar;
             
@@ -63,18 +145,28 @@ static void sensor_readmeasurements (osjob_t* job) {
                 signchar = '0';
             }
             
-            *(pbuf++) = signchar;
-            pbuf += putshort (pbuf, (u2_t*)&temperature_res_deg_0point1, 5, 1);
-            *(pbuf++) = ',';
-            pbuf += putshort (pbuf, &humidity_res_rel_0point1, 6, 1);
-            *(pbuf++) = ',';
-            pbuf += putshort (pbuf, &barometer_res_hPa_0point1, 6, 1);
+            if (sensor_fce[sensor_type].sensor_value_types & SENSOR_TEMPERATURE)
+            {
+                *(pbuf++) = signchar;
+                pbuf += putshort (pbuf, (u2_t*)&temperature_res_deg_0point1, 5, 1);
+                *(pbuf++) = ',';
+            }
+            if (sensor_fce[sensor_type].sensor_value_types & SENSOR_HUMUDITY)
+            {
+                pbuf += putshort (pbuf, &humidity_res_rel_0point1, 6, 1);
+                *(pbuf++) = ',';
+            }
+            if (sensor_fce[sensor_type].sensor_value_types & SENSOR_PRESSURE)
+            {
+                pbuf += putshort (pbuf, &barometer_res_hPa_0point1, 6, 1);
+            }
             *(pbuf++) = '\r';
             *(pbuf++) = '\n';
             modem_transmitdata(buf, len);
         }
         if (sensor_data_processing & SENT_RADIO) {
             u1_t payload[11];
+            u1_t payload_len = 0;
 
             // Cayenne LPP format
             /*
@@ -85,67 +177,85 @@ static void sensor_readmeasurements (osjob_t* job) {
             Acceptable range is from 0 to 64. The device developer is responsible to assign a unique channel
             for each of the devices sensor and actuator and conform to it across the device life cycle.
             */
-            payload[0] = lpp_data_channel++;                // Data Ch.
-            payload[1] = LPP_TEMPERATURE_SENSOR;            // Temperature Sensor
-            payload[2] = temperature_res_deg_0point1 >> 8;  // MSB Data
-            payload[3] = temperature_res_deg_0point1;       // LSB Data
-            
-            payload[4] = lpp_data_channel++;                // Data Ch.
-            payload[5] = LPP_HUMIDITY_SENSOR;               // Humidity Sensor
-            payload[6] = humidity_res_rel_0point5;          // Data
-            
-            payload[7] = lpp_data_channel;                  // Data Ch.
-            payload[8] = LPP_BAROMETER;                     // Barometer
-            payload[9] = barometer_res_hPa_0point1 >> 8;    // MSB Data
-            payload[10] = barometer_res_hPa_0point1;        // LSB Data
-            
-            LMIC_setTxData2(radio_tx_port, payload, sizeof(payload), radio_tx_confirm);
+            if (sensor_fce[sensor_type].sensor_value_types & SENSOR_TEMPERATURE)
+            {
+                payload[payload_len++] = lpp_data_channel++;                // Data Ch.
+                payload[payload_len++] = LPP_TEMPERATURE_SENSOR;            // Temperature Sensor
+                payload[payload_len++] = temperature_res_deg_0point1 >> 8;  // MSB Data
+                payload[payload_len++] = temperature_res_deg_0point1;       // LSB Data
+            }
+            if (sensor_fce[sensor_type].sensor_value_types & SENSOR_HUMUDITY)
+            {
+                payload[payload_len++] = lpp_data_channel++;                // Data Ch.
+                payload[payload_len++] = LPP_HUMIDITY_SENSOR;               // Humidity Sensor
+                payload[payload_len++] = humidity_res_rel_0point5;          // Data
+            }
+            if (sensor_fce[sensor_type].sensor_value_types & SENSOR_PRESSURE)
+            {
+                payload[payload_len++] = lpp_data_channel;                  // Data Ch.
+                payload[payload_len++] = LPP_BAROMETER;                     // Barometer
+                payload[payload_len++] = barometer_res_hPa_0point1 >> 8;    // MSB Data
+                payload[payload_len++] = barometer_res_hPa_0point1;        // LSB Data
+            }
+            LMIC_setTxData2(radio_tx_port, payload, payload_len, radio_tx_confirm);
         }
     }
-    else {
+    else if (get_data_again) {
         // Not measured yet, try again later
         os_setTimedCallback(job, os_getTime()+ms2osticks(100), sensor_readmeasurements);
     }
+
+    get_data_again = false;
 }
 
 static void sensor_startmeasurements (osjob_t* job) {
     // Request measuring
-    Weather_readSensorsStart();
+    uint32_t req_delay;
 
-    // Schedule data reading when measured
-    os_setTimedCallback(job, os_getTime()+ms2osticks(100), sensor_readmeasurements);
+    if (sensor_fce[sensor_type].sensor_force_trigger(&req_delay))
+    {
+        os_setTimedCallback(job, os_getTime()+ms2osticks(req_delay), sensor_readmeasurements);
+        get_data_again = true;
+    }
 }
 
-static u1_t sensor_check(void)
+static u1_t sensor_start(void)
 {
-    static bit_t poweron = 1;
-    static u1_t connectedLast = 0;
-    u1_t connected = 0;
+    static bit_t powerison = false;
     
-    if ( poweron ) {
-        sensor_power(1);
+    if ( ! powerison ) {
+        powerison = true;
+        sensor_power(powerison);
         hal_waitUntil(os_getTime()+ms2osticks(5));
-        poweron = 0;
+        hal_i2c_ioInit(SENSOR_I2C_ADDR_PRIM);
     }
-    
-    if (BME280_getID() == BME280_CHIP_ID) {
-        connected = 1;
-        if ( !connectedLast ) {
-            Weather_reset();
-            hal_waitUntil(os_getTime()+ms2osticks(5));
+    bit_t sensor_found = false;
+
+    for (int i = 0; i < (sizeof(sensor_fce) / sizeof(sensor_fce_t)); i++)
+    {
+        if (sensor_fce[i].sensor_check())
+        {
+            sensor_found = true;
+            sensor_type = i;
+            break;
         }
     }
-    
-    connectedLast = connected;
-    
-    return connected;
+
+    if (!sensor_found)
+    {
+        powerison = false;
+        sensor_power(powerison);
+        
+    }
+
+    return sensor_found && sensor_fce[sensor_type].sensor_init();
 }
 
 static u1_t sensor_tx(void)
 {
     static osjob_t sensorjob;
     
-    if (!sensor_check()) {
+    if (!sensor_start()) {
         return 0;
     }
     
