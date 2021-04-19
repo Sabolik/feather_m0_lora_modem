@@ -85,7 +85,7 @@ static sensor_fce_t sensor_fce[] = {
         sensor_force_trigger_bmp280,
         sensor_get_data_bmp280,
         sensor_check_bmp280,
-        (SENSOR_PRESSURE),
+        (SENSOR_TEMPERATURE | SENSOR_PRESSURE),
     },
 };
 static u1_t sensor_type;

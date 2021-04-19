@@ -39,7 +39,13 @@ static int8_t i2c_reg_write(uint8_t i2c_addr, uint8_t reg_addr, uint8_t *reg_dat
 }
 
 static int8_t i2c_reg_read(uint8_t i2c_addr, uint8_t reg_addr, uint8_t *reg_data, uint16_t length) {
-    return user_i2c_read(reg_addr, reg_data, length, NULL);
+    // FIXME: for some reason multiple byte read is not working correctly with BMP280
+    //return user_i2c_read(reg_addr, reg_data, length, NULL);
+    for (int i = 0; i < length; i++)
+    {
+        user_i2c_read(reg_addr+i, reg_data+i, 1, NULL);
+    }
+    return 0;
 }
 
 static struct bmp280_dev dev = {  
